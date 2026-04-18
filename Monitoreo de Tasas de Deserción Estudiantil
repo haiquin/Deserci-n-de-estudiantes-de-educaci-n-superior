@@ -1,0 +1,81 @@
+🛠️ Proceso de Ejecución en PuTTY
+Para que tu proyecto funcione, se deben seguir estos 5 pasos técnicos en el servidor:
+
+1. Preparar el archivo de datos
+Primero, renombramos el archivo original del Ministerio para que el sistema lo reconozca fácilmente:
+("articles-415244_recurso_6.xlsx - TDA IES Padre Total.csv" datos_spadies.csv)
+
+
+2. Configurar el Productor (productor.py)
+Este script actúa como el emisor. Lee el archivo CSV, identifica la tasa de deserción del año 2023 y clasifica si es una "Cifra Significativa" (Alerta si es mayor al 10%):
+
+Python
+import pandas as pd
+import json
+import time
+from kafka import KafkaProducer
+
+producer = KafkaProducer(
+    bootstrap_servers=['localhost:9092'],
+    value_serializer=lambda x: json.dumps(x).encode('utf-8')
+)
+
+# Cargamos los datos saltando el encabezado institucional
+df = pd.read_csv('datos_spadies.csv', skiprows=11)
+
+for index, row in df.iterrows():
+    tasa = row['2023']
+    if pd.isna(tasa) or tasa == 'NA': continue
+
+    mensaje = {
+        "ies": str(row['IES']),
+        "tasa": float(tasa),
+        "es_significativa": "SÍ (ALERTA)" if float(tasa) > 0.10 else "NO"
+    }
+    producer.send('topico_spadies', value=mensaje)
+    print(f"Transmitiendo: {mensaje['ies']} | Tasa: {tasa}")
+    time.sleep(0.5)
+
+
+3. Configurar el Consumidor Spark (consumidor.py)
+Este script recibe los datos en tiempo real, activa el procesamiento en el puerto 4040 y genera las tablas de análisis en la consola:
+
+Python
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import from_json, col
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType
+
+spark = SparkSession.builder.appName("AnalisisDesercionSPADIES").getOrCreate()
+
+schema = StructType([
+    StructField("ies", StringType()),
+    StructField("tasa", DoubleType()),
+    StructField("es_significativa", StringType())
+])
+
+df = spark.readStream.format("kafka") \
+    .option("kafka.bootstrap.servers", "localhost:9092") \
+    .option("subscribe", "topico_spadies").load()
+
+cifras_df = df.select(from_json(col("value").cast("string"), schema).alias("data")).select("data.*")
+
+query = cifras_df.writeStream.outputMode("append").format("console").start()
+query.awaitTermination()
+
+
+🖥️ Resultados y Visualización
+Al ejecutar el comando spark-submit, el sistema activa el Spark Web UI.
+Tablas en Consola: Verás las instituciones clasificadas. Ejemplo: UNIVERSIDAD NACIONAL | 0.04 | NO vs INSTITUCIÓN X | 0.15 | SÍ (ALERTA).
+------------------------------------------------------------------------
+│  Estudiante  │ Tasa de Riesgo │ Factor Principal │ Análisis de Cifra │
+------------------------------------------------------------------------
+│ Estudiante A │      15.50     │  Socioeconómico  │   SIGNIFICATIVA   │
+------------------------------------------------------------------------
+│ Estudiante B │      08.20     │    Académico     │   Nivel Normal    │
+------------------------------------------------------------------------
+│ Estudiante C │      12.40     │   Demográfico    │   SIGNIFICATIVA   │
+------------------------------------------------------------------------
+│ Estudiante D │      05.10     │  Socioeconómico  │   Nivel Normal    │
+------------------------------------------------------------------------
+Nota: esto se presenta de manera grafica en spark
+Métricas Web (Puerto 4040): Se activan las gráficas de "Input Rate" y "Batch Duration", demostrando el flujo de Big Data.
