@@ -79,3 +79,4 @@ Tablas en Consola: Verás las instituciones clasificadas. Ejemplo: UNIVERSIDAD N
 ------------------------------------------------------------------------
 Nota: esto se presenta de manera grafica en spark
 Métricas Web (Puerto 4040): Se activan las gráficas de "Input Rate" y "Batch Duration", demostrando el flujo de Big Data.
+Realice de esta manera el porceso en github ya que no me permitio seguir el proceso en putty
